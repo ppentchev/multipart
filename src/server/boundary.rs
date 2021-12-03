@@ -577,6 +577,35 @@ mod test {
         assert_eq!(reader.consume_boundary().unwrap(), false);
     }
 
+    #[test]
+    fn test_straddle_buffer_end() {
+        let body_base: &[u8] = b"--boundary\r\nfield1\r\n--boundary\r\nfield2\r\n--boundary--";
+        assert_eq!(body_base.get(11), Some(&b'\n'));
+        assert_eq!(body_base.get(18), Some(&b'\r'));
+        assert_eq!(body_base.len(), 52);
+
+        // Build a buffer that has CR at position 8191 and LF at position 8192,
+        // so the "last two bytes are \r\n" check fails at the second portion
+        // (it starts with CR, but the LF is long gone).
+        let mut body_full = Vec::<u8>::new();
+        body_full.extend_from_slice(&body_base[..18]);
+        body_full.append(&mut body_base[17..18].repeat(8192 - 17 - 2));
+        body_full.extend_from_slice(&body_base[18..]);
+        assert!(body_full.len() > 8192);
+        assert_eq!(body_full.get(8191), Some(&b'\r'));
+        assert_eq!(body_full.get(8192), Some(&b'\n'));
+
+        let mut body_full_slice = &body_full[..];
+        let mut reader = BoundaryReader::from_reader(&mut body_full_slice, "boundary");
+
+        assert_eq!(reader.consume_boundary().unwrap(), true);
+
+        let mut buf = String::new();
+        reader.read_to_string(&mut buf).unwrap();
+        assert_eq!(&buf[..8], "field111");
+        assert_eq!(&buf[buf.len() - 3..], "111");
+    }
+
     #[cfg(feature = "bench")]
     mod bench {
         extern crate test;
